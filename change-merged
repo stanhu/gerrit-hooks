@@ -1,0 +1,124 @@
+#!/usr/bin/python
+#
+# Gerrit script to send out e-mail about change that has been merged into
+# branch.  The e-mail format has been modeled after the sample
+# post-receive-email script.  In Ubuntu's git-core package, this is located:
+#
+# /usr/share/doc/git-core/contrib/hooks/post-receive-email
+#
+# The script assumes the following arguments:
+#
+# Called whenever a change has been merged.
+#
+# change-merged --change <change id> --change-url <change url> --project <project name> --branch <branch> --submitter <submitter> --commit <sha1>
+#
+# The details for each parameter are located here:
+#
+# http://gerrit.googlecode.com/svn/documentation/2.1.6/config-hooks.html
+#
+# This script requires variables to be set:
+#
+# GIT_BIN should point to the Git binary on the system.
+#
+# GIT_PATH should point to the base path of the Git repository.
+#
+# MUTT_BIN should point to the binary of mutt.  You are welcome to change the function
+# sendMail() to suit your configuration (e.g. sendmail or smtplib).
+#
+# The script also assumes that the hooks.mailinglist config variable is set within the
+# repository.  If the variable is not defined, the script will not attempt to send mail.
+#
+# The source repository is assumed to be in GIT_PATH/<ProjectName>.git.  You must
+# have a .git extension for this script to work.
+#
+# Written by Stan Hu <stanhu at gma i l.com
+
+import os
+import subprocess
+import sys
+from optparse import OptionParser
+
+GIT_BIN="/usr/bin/git"
+GIT_PATH="/usr/GIT-REP"
+MUTT_BIN="/usr/bin/mutt"
+
+def generateHeader(options):
+    message = "This is an automated e-mail from the Gerrit change-merged script.  It was\n" \
+              "generated because a patch was pushed to the repository containing\n" \
+              "the project \"%s\".\n" % options.project_name
+    message += "\n"
+    message += "The branch \"%s\" has been updated. See:\n\n" % options.branch_name
+    message += "%s\n\n" % options.change_url
+    message += "- Log -----------------------------------------------------------------\n"
+    return message
+
+def executeAndReturnOutput(command, baseDir, projectName):
+    directory = "%s/%s.git" % (GIT_PATH, projectName)
+    p = subprocess.Popen(command, stdout = subprocess.PIPE, stderr = subprocess.PIPE, cwd = directory)
+    output, errors = p.communicate()
+    return output
+
+def generateDiff(options):
+    command = [GIT_BIN, "show", "-C", options.commit]
+    return executeAndReturnOutput(command, GIT_PATH, options.project_name)
+
+def getDescription(options):
+    command = [GIT_BIN, "describe", options.commit]
+    return executeAndReturnOutput(command, GIT_PATH, options.project_name)
+
+def getEmailTargets(options):
+    # Retrieve the e-mail address to which we send by consulting the Git
+    # configuration variable.
+    command = [GIT_BIN, "config", "--get", "hooks.mailinglist"]
+    output = executeAndReturnOutput(command, GIT_PATH, options.project_name)
+
+    print command
+    print output
+    if (len(output.rstrip().lstrip()) == 0):
+        return None
+
+    return output
+
+def sendMail(options, message):
+    '''
+    Send mail using Mutt binary.  Feel free to modify this to use your own mailer.
+    '''
+    submitter = options.submitter
+    project = options.project_name
+    branch = options.branch_name
+    desc = getDescription(options)
+
+    targets = getEmailTargets(options)
+
+    # Only send e-mail if there are targets available
+    if targets is None:
+        print "No targets configured for %s" % project
+    else:
+        subject = "[Gerrit] %s branch %s updated. %s" % (project, branch, desc)
+        # Escape quotes since we are piping the message through stdin.
+        message = message.replace('\"', '\\"')
+        command = "echo \"%s\" | \"%s\" -s \"%s\" -- \"%s\"" % (message, MUTT_BIN, subject, targets)
+        os.system(command)
+
+def main():
+    parser = OptionParser()
+    parser.add_option("-i", "--change", dest="change_id", help="Gerrit change ID")
+    parser.add_option("-p", "--project", dest="project_name", help="Gerrit Project Name")
+    parser.add_option("-b", "--branch", dest="branch_name", help="Gerrit Branch Name")
+    parser.add_option("-s", "--submitter", dest="submitter", help="Gerrit Submitter")
+    parser.add_option("-c", "--commit", dest="commit", help="GIT Commit SHA ID")
+    parser.add_option("-u", "--change-url", dest="change_url", help="GIT Change URL")
+
+    options, args = parser.parse_args()
+
+    if options.commit is None or options.branch_name is None or options.submitter is None:
+        print parser.print_help()
+        sys.exit(1)
+
+    message = generateHeader(options)
+    message += generateDiff(options)
+    # Send mail from command line
+    sendMail(options, message)
+
+if __name__ == '__main__':
+    main()
