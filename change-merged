@@ -31,7 +31,7 @@
 # The source repository is assumed to be in GIT_PATH/<ProjectName>.git.  You must
 # have a .git extension for this script to work.
 #
-# Written by Stan Hu <stanhu at gma i l.com
+# Written by Stan Hu <stanhu at gma i l.com>
 
 import os
 import subprocess
